@@ -11,8 +11,9 @@ If <= 256 times are the same, if 64K it's slower by 2x, and if 1M its slower by 
 TODO: Add runs
 
 
-Box is faster when larger by 10% but otherwise fairly similar, we're talking in the
-2.8 vs 3.1us. This is using `std:{sync::mpsc::{channel, Receiver, Sender}`.
+Box is faster when messages are by about 10%. but otherwise fairly similar, we're talking in the
+2.8 vs 3.1us. This is using `std:{sync::mpsc::{channel, Receiver, Sender}` on nightly.
+
 
 TODO: Add runs
 

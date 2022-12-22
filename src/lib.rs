@@ -1,13 +1,23 @@
 use std::fmt::Display;
 
+pub trait PushV {
+    fn push_v(&mut self, val: u8);
+}
+
 #[derive(Clone, Default)]
-pub struct Message {
+pub struct MsgOf {
     pub v: Vec<u8>,
 }
 
-impl Display for Message {
+impl Display for MsgOf {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:p} {:p}", &self, &self.v[0])
+    }
+}
+
+impl PushV for MsgOf {
+    fn push_v(&mut self, val: u8) {
+        self.v.push(val);
     }
 }
 
@@ -120,6 +130,12 @@ pub struct MsgMf {
 impl Display for MsgMf {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:p} {:p}", &self, &self.v[0])
+    }
+}
+
+impl PushV for MsgMf {
+    fn push_v(&mut self, val: u8) {
+        self.v.push(val);
     }
 }
 
