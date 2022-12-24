@@ -254,7 +254,6 @@ impl Default for MsgMf {
     }
 }
 
-
 const KB: usize = 1024;
 
 fn prep<Msg: PushV + Clone + Default>(
@@ -273,10 +272,7 @@ fn prep<Msg: PushV + Clone + Default>(
     (tx, partner_tx, rx, partner_rx)
 }
 
-fn partner<Msg: std::marker::Send + 'static>(
-    tx: Sender<Msg>,
-    rx: Receiver<Msg>,
-) {
+fn partner<Msg: std::marker::Send + 'static>(tx: Sender<Msg>, rx: Receiver<Msg>) {
     thread::spawn(move || {
         loop {
             if let Ok(msg) = rx.recv() {
@@ -292,10 +288,7 @@ fn partner<Msg: std::marker::Send + 'static>(
     });
 }
 
-fn partner_clone<Msg: Clone + std::marker::Send + 'static>(
-    tx: Sender<Msg>,
-    rx: Receiver<Msg>,
-) {
+fn partner_clone<Msg: Clone + std::marker::Send + 'static>(tx: Sender<Msg>, rx: Receiver<Msg>) {
     thread::spawn(move || {
         loop {
             if let Ok(msg) = rx.recv() {
@@ -313,7 +306,12 @@ fn partner_clone<Msg: Clone + std::marker::Send + 'static>(
 
 fn prep_box<Msg: PushV + Clone + Default>(
     v_len: usize,
-) -> (Sender<Box<Msg>>, Sender<Box<Msg>>, Receiver<Box<Msg>>, Receiver<Box<Msg>>) {
+) -> (
+    Sender<Box<Msg>>,
+    Sender<Box<Msg>>,
+    Receiver<Box<Msg>>,
+    Receiver<Box<Msg>>,
+) {
     let (tx, partner_rx) = channel::<Box<Msg>>();
     let (partner_tx, rx) = channel::<Box<Msg>>();
 
@@ -322,15 +320,13 @@ fn prep_box<Msg: PushV + Clone + Default>(
         msg.push_v((i & 0xff) as u8);
     }
 
-    tx.send(Box::new(msg)).expect("crit_echo_clone: error sending msg");
+    tx.send(Box::new(msg))
+        .expect("crit_echo_clone: error sending msg");
 
     (tx, partner_tx, rx, partner_rx)
 }
 
-fn partner_box<Msg: std::marker::Send + 'static>(
-    tx: Sender<Box<Msg>>,
-    rx: Receiver<Box<Msg>>,
-) {
+fn partner_box<Msg: std::marker::Send + 'static>(tx: Sender<Box<Msg>>, rx: Receiver<Box<Msg>>) {
     thread::spawn(move || {
         loop {
             if let Ok(msg) = rx.recv() {
@@ -389,20 +385,23 @@ fn echo(c: &mut Criterion) {
             b.iter(|| {
                 let msg = rx.recv().expect("echo MsgOf: error receiving msg");
                 //println!("echo MsgOf:    msg={}", &msg);
-                tx.send(msg)
-                    .expect("echo MsgOf: error sending msg");
+                tx.send(msg).expect("echo MsgOf: error sending msg");
             });
         });
         group.bench_with_input(BenchmarkId::new("box MsgOf", v_len), &v_len, |b, &v_len| {
-            let (tx, tx_partner, rx, rx_partner): (Sender<Box<MsgOf>>, Sender<Box<MsgOf>>, Receiver<Box<MsgOf>>, Receiver<Box<MsgOf>>) = prep_box::<MsgOf>(v_len);
+            let (tx, tx_partner, rx, rx_partner): (
+                Sender<Box<MsgOf>>,
+                Sender<Box<MsgOf>>,
+                Receiver<Box<MsgOf>>,
+                Receiver<Box<MsgOf>>,
+            ) = prep_box::<MsgOf>(v_len);
 
             partner_box::<MsgOf>(tx_partner, rx_partner);
 
             b.iter(|| {
                 let msg = rx.recv().expect("echo box MsgOf: error receiving msg");
                 //println!("echo MsgOf:    msg={}", &msg);
-                tx.send(msg)
-                    .expect("echo box MsgOf: error sending msg");
+                tx.send(msg).expect("echo box MsgOf: error sending msg");
             });
         });
         group.bench_with_input(BenchmarkId::new("MsgMf", v_len), &v_len, |b, &v_len| {
@@ -413,8 +412,7 @@ fn echo(c: &mut Criterion) {
             b.iter(|| {
                 let msg = rx.recv().expect("echo MsgMf: error receiving msg");
                 //println!("echo MsgMf:    msg={}", &msg);
-                tx.send(msg)
-                    .expect("echo MsgMf: error sending msg");
+                tx.send(msg).expect("echo MsgMf: error sending msg");
             });
         });
         group.bench_with_input(BenchmarkId::new("box MsgMf", v_len), &v_len, |b, &v_len| {
@@ -425,8 +423,7 @@ fn echo(c: &mut Criterion) {
             b.iter(|| {
                 let msg = rx.recv().expect("echo box MsgMf: error receiving msg");
                 //println!("echo MsgMf:    msg={}", &msg);
-                tx.send(msg)
-                    .expect("echo box MsgMf: error sending msg");
+                tx.send(msg).expect("echo box MsgMf: error sending msg");
             });
         });
     }
@@ -448,61 +445,81 @@ fn echo_clone(c: &mut Criterion) {
         512 * KB,
         1024 * KB,
     ] {
-        group.bench_with_input(BenchmarkId::new("clone MsgOf", v_len), &v_len, |b, &v_len| {
-            let (tx, tx_partner, rx, rx_partner) = prep::<MsgOf>(v_len);
+        group.bench_with_input(
+            BenchmarkId::new("clone MsgOf", v_len),
+            &v_len,
+            |b, &v_len| {
+                let (tx, tx_partner, rx, rx_partner) = prep::<MsgOf>(v_len);
 
-            partner_clone::<MsgOf>(tx_partner, rx_partner);
+                partner_clone::<MsgOf>(tx_partner, rx_partner);
 
-            b.iter(|| {
-                let msg = rx.recv().expect("clone MsgOf: error receiving msg");
-                //println!("echo clone MsgOf:    msg={}", &msg);
-                tx.send(msg.clone())
-                    .expect("clone MsgOf: error sending msg");
-            });
-        });
-        group.bench_with_input(BenchmarkId::new("clone box MsgOf", v_len), &v_len, |b, &v_len| {
-            let (tx, tx_partner, rx, rx_partner): (Sender<Box<MsgOf>>, Sender<Box<MsgOf>>, Receiver<Box<MsgOf>>, Receiver<Box<MsgOf>>) = prep_box::<MsgOf>(v_len);
+                b.iter(|| {
+                    let msg = rx.recv().expect("clone MsgOf: error receiving msg");
+                    //println!("echo clone MsgOf:    msg={}", &msg);
+                    tx.send(msg.clone())
+                        .expect("clone MsgOf: error sending msg");
+                });
+            },
+        );
+        group.bench_with_input(
+            BenchmarkId::new("clone box MsgOf", v_len),
+            &v_len,
+            |b, &v_len| {
+                let (tx, tx_partner, rx, rx_partner): (
+                    Sender<Box<MsgOf>>,
+                    Sender<Box<MsgOf>>,
+                    Receiver<Box<MsgOf>>,
+                    Receiver<Box<MsgOf>>,
+                ) = prep_box::<MsgOf>(v_len);
 
-            partner_clone_box::<MsgOf>(tx_partner, rx_partner);
+                partner_clone_box::<MsgOf>(tx_partner, rx_partner);
 
-            b.iter(|| {
-                let msg = rx.recv().expect("echo clone box MsgOf: error receiving msg");
-                //println!("echo MsgOf:    msg={}", &msg);
-                tx.send(msg.clone())
-                    .expect("clone box MsgOf: error sending msg");
-            });
-        });
-        group.bench_with_input(BenchmarkId::new("clone MsgMf", v_len), &v_len, |b, &v_len| {
-            let (tx, tx_partner, rx, rx_partner) = prep::<MsgMf>(v_len);
+                b.iter(|| {
+                    let msg = rx
+                        .recv()
+                        .expect("echo clone box MsgOf: error receiving msg");
+                    //println!("echo MsgOf:    msg={}", &msg);
+                    tx.send(msg.clone())
+                        .expect("clone box MsgOf: error sending msg");
+                });
+            },
+        );
+        group.bench_with_input(
+            BenchmarkId::new("clone MsgMf", v_len),
+            &v_len,
+            |b, &v_len| {
+                let (tx, tx_partner, rx, rx_partner) = prep::<MsgMf>(v_len);
 
-            partner_clone::<MsgMf>(tx_partner, rx_partner);
+                partner_clone::<MsgMf>(tx_partner, rx_partner);
 
-            b.iter(|| {
-                let msg = rx.recv().expect("echo clone MsgMf: error receiving msg");
-                //println!("echo clone MsgMf:    msg={}", &msg);
-                tx.send(msg.clone())
-                    .expect("clone MsgMf: error sending msg");
-            });
-        });
-        group.bench_with_input(BenchmarkId::new("clone box MsgMf", v_len), &v_len, |b, &v_len| {
-            let (tx, tx_partner, rx, rx_partner) = prep_box::<MsgMf>(v_len);
+                b.iter(|| {
+                    let msg = rx.recv().expect("echo clone MsgMf: error receiving msg");
+                    //println!("echo clone MsgMf:    msg={}", &msg);
+                    tx.send(msg.clone())
+                        .expect("clone MsgMf: error sending msg");
+                });
+            },
+        );
+        group.bench_with_input(
+            BenchmarkId::new("clone box MsgMf", v_len),
+            &v_len,
+            |b, &v_len| {
+                let (tx, tx_partner, rx, rx_partner) = prep_box::<MsgMf>(v_len);
 
-            partner_clone_box::<MsgMf>(tx_partner, rx_partner);
+                partner_clone_box::<MsgMf>(tx_partner, rx_partner);
 
-            b.iter(|| {
-                let msg = rx.recv().expect("echo clone box MsgMf: error receiving msg");
-                //println!("echo MsgMf:    msg={}", &msg);
-                tx.send(msg.clone())
-                    .expect("clone box MsgMf: error sending msg");
-            });
-        });
+                b.iter(|| {
+                    let msg = rx
+                        .recv()
+                        .expect("echo clone box MsgMf: error receiving msg");
+                    //println!("echo MsgMf:    msg={}", &msg);
+                    tx.send(msg.clone())
+                        .expect("clone box MsgMf: error sending msg");
+                });
+            },
+        );
     }
 }
 
-
-criterion_group!(
-    benches,
-    echo,
-    echo_clone,
-);
+criterion_group!(benches, echo, echo_clone,);
 criterion_main!(benches);
