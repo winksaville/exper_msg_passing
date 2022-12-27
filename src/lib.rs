@@ -20,8 +20,11 @@ impl HandleMessage<SuperProtocol> for Client {
                 //println!("Client::handle_message: Echoing");
                 // How can I remove the need for the clone() here,
                 // I'd like to just do `sender.send(msg);`?
-                sender.clone().send(msg);
-                ServiceState::Running
+                if sender.clone().send(msg).is_ok() {
+                    ServiceState::Running
+                } else {
+                    ServiceState::Stopped
+                }
             }
             SuperProtocol::P1(Echo::Stop) => {
                 //println!("Client::handle_message: STOP msg={msg:?}");
@@ -111,9 +114,7 @@ impl HandleMessage<SuperProtocol> for Server {
                         if self.count > 0 {
                             self.count -= 1;
                             //println!( "Server::handle_message: Echo count={} received msg={msg:?}", self.count);
-                            self.send_to_client(Box::new(SuperProtocol::P1(Echo::Echo(
-                                self.my_tx.clone().unwrap(),
-                            ))))
+                            self.send_to_client(msg)
                         } else {
                             //println!("Server::handle_message: Echo count={} STOPPING received msg={msg:?}", self.count);
                             self.send_to_client(Box::new(SuperProtocol::P1(Echo::Stop)));
