@@ -1,5 +1,7 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, PlotConfiguration};
-use exper_msg_passing::{Client, Pinger, Server, ServiceManager, StartMsg, SuperProtocol};
+use exper_msg_passing::{
+    Client, Echo, MainMsgs, Pinger, Server, ServiceManager, StartMsg, SuperProtocol,
+};
 use std::{
     sync::mpsc::{channel, Receiver, Sender},
     thread,
@@ -523,79 +525,107 @@ fn echo_clone(c: &mut Criterion) {
 }
 
 #[allow(unused)]
-fn server_manager_multiple(c: &mut Criterion) {
-    let plot_config = PlotConfiguration::default();
-
-    let mut group = c.benchmark_group("multiple_runs_one_thread");
-    group.plot_config(plot_config);
-
-    for count in [1, 500, 1000] {
-        group.bench_with_input(
-            BenchmarkId::new("multiple_runs_onethread", count),
-            &count,
-            |b, &count| {
-                let client = Client::default();
-                let server = Server::default();
-
-                let mut service_manager = ServiceManager::default();
-                service_manager.register_service(Box::new(client));
-                service_manager.register_service(Box::new(server));
-
-                let client_tx = service_manager.get_sender(0);
-                let server_tx = service_manager.get_sender(1);
-
-                b.iter(|| {
-                    let msg = Box::new(SuperProtocol::P2(Pinger::Start(StartMsg {
-                        count,
-                        client_tx: Some(client_tx.clone()),
-                        server_tx: Some(server_tx.clone()),
-                    })));
-                    _ = service_manager.get_sender(1).send(msg);
-
-                    // Invoke run so server and client can process messages
-                    service_manager.run();
-
-                    // Re-enable running, works for this simple test
-                    service_manager.enable_running();
-                });
-            },
-        );
-    }
-}
-
-#[allow(unused)]
 fn server_manager_1000(c: &mut Criterion) {
+    //println!("server_manager_1000:+");
+
     let plot_config = PlotConfiguration::default();
 
     let mut group = c.benchmark_group("one_thread");
     group.plot_config(plot_config);
 
     group.bench_function("1000", |b| {
-        let client = Client::default();
-        let server = Server::default();
+        //println!("bench:+");
 
-        let mut service_manager = ServiceManager::default();
-        service_manager.register_service(Box::new(client));
-        service_manager.register_service(Box::new(server));
+        let (bench_tx, bench_rx) = channel::<Box<SuperProtocol>>();
+        let main_to_bench_tx = bench_tx.clone();
+        let server_to_bench_tx = bench_tx.clone();
 
-        let client_tx = service_manager.get_sender(0);
-        let server_tx = service_manager.get_sender(1);
+        let (main_tx, main_rx) = channel::<Box<SuperProtocol>>();
+        let to_main_tx = main_tx.clone();
 
-        b.iter(|| {
-            let msg = Box::new(SuperProtocol::P2(Pinger::Start(StartMsg {
-                count: 500, // 2 messages per iteration so this is 1000 messages
-                client_tx: Some(client_tx.clone()),
-                server_tx: Some(server_tx.clone()),
-            })));
-            _ = service_manager.get_sender(1).send(msg);
+        // "Main thread that is where the Server and Client are running."
+        thread::spawn(move || {
+            //println!("main:+");
 
-            // Invoke run so server and client can process messages
+            let client = Client::default();
+            let server = Server::default();
+
+            let mut service_manager = ServiceManager::default();
+            service_manager.register_service(Box::new(client));
+            service_manager.register_service(Box::new(server));
+
+            //let (main_tx, main_rx) = channel::<Box<SuperProtocol>>();
+            let client_tx = service_manager.get_sender(0);
+            let server_tx = service_manager.get_sender(1);
+
+            // Send client_tx and server_tx to bench
+            main_to_bench_tx
+                //.clone()
+                .send(Box::new(SuperProtocol::P3(MainMsgs::ClientTx(
+                    client_tx.clone(),
+                ))))
+                .unwrap();
+            main_to_bench_tx
+                //.clone()
+                .send(Box::new(SuperProtocol::P3(MainMsgs::ServerTx(
+                    server_tx.clone(),
+                ))))
+                .unwrap();
+
+            // Rut server and client allowing them to process messages
+            //println!("main:  Running");
             service_manager.run();
 
-            // Re-enable running, works for this simple test
-            service_manager.enable_running();
+            //println!("main:-");
         });
+
+        //println!("bench:  Get client and server tx's");
+        let client_tx = match bench_rx.recv() {
+            Ok(msg) => match *msg {
+                SuperProtocol::P3(MainMsgs::ClientTx(tx)) => tx,
+                _ => panic!("bench: Unexpected msg={msg:?}"),
+            },
+            Err(why) => panic!("bench: Error receiving server_tx, why={why}"),
+        };
+        let server_tx = match bench_rx.recv() {
+            Ok(msg) => match *msg {
+                SuperProtocol::P3(MainMsgs::ServerTx(tx)) => tx,
+                _ => panic!("bench: Unexpected msg={msg:?}"),
+            },
+            Err(why) => panic!("bench: Error receiving server_tx, why={why}"),
+        };
+
+        b.iter(|| {
+            //println!("b.iter:  Send Start");
+
+            let msg = Box::new(SuperProtocol::P2(Pinger::Start(StartMsg {
+                count: 500, // 2 messages (1 server to client, 1 client to server) so this is 1,000 messages
+                main_tx: server_to_bench_tx.clone(),
+                server_tx: server_tx.clone(),
+                client_tx: client_tx.clone(),
+            })));
+            _ = server_tx.clone().send(msg);
+
+            // Wait for server to complete
+            //println!("b.iter:  wait for server to complete");
+            match bench_rx.recv() {
+                Ok(msg) => match &*msg {
+                    SuperProtocol::P2(Pinger::Done) => (), //println!("b.iter:  server is Done"),
+                    _ => panic!("b.iter: Unexpected msg={msg:?}"),
+                },
+                Err(why) => panic!("b.iter: Error receiving server_tx, why={why}"),
+            }
+        });
+
+        // Stop the server and client
+        //println!("bench:  Stopping server and client");
+        _ = server_tx.send(Box::new(SuperProtocol::P2(Pinger::Stop)));
+        _ = client_tx.send(Box::new(SuperProtocol::P1(Echo::Stop)));
+
+        //println!("bench:-");
     });
+
+    println!("server_manager_1000:-");
 }
 
 criterion_group!(benches, server_manager_1000,);

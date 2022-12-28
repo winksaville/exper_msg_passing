@@ -47,13 +47,15 @@ pub struct Work2Msg {
 #[derive(Debug)]
 pub struct StartMsg {
     pub count: usize,
-    pub client_tx: Option<Sender<Box<SuperProtocol>>>,
-    pub server_tx: Option<Sender<Box<SuperProtocol>>>,
+    pub main_tx: Sender<Box<SuperProtocol>>,
+    pub server_tx: Sender<Box<SuperProtocol>>,
+    pub client_tx: Sender<Box<SuperProtocol>>,
 }
 
 #[derive(Debug)]
 pub enum Pinger {
     Start(StartMsg),
+    Done,
     Stop,
 }
 
@@ -61,6 +63,8 @@ pub enum Pinger {
 #[allow(unused)]
 pub struct Server {
     pub count: usize,
+    // Having this as Option is ugly
+    main_tx: Option<Sender<Box<SuperProtocol>>>,
     client_tx: Option<Sender<Box<SuperProtocol>>>,
     my_tx: Option<Sender<Box<SuperProtocol>>>,
     running: ServiceState,
@@ -68,11 +72,11 @@ pub struct Server {
 
 impl Server {
     fn send_to_client(&self, msg: Box<SuperProtocol>) -> ServiceState {
-        //println!("Server::ping_client:+");
+        //println!("Server::send_to_client:+");
         #[allow(clippy::let_and_return)]
         let r = if let Some(c_tx) = self.client_tx.clone() {
             if c_tx.send(msg).is_ok() {
-                //println!("Server::ping_client");
+                //println!("Server::send_to_client");
                 ServiceState::Running
             } else {
                 ServiceState::Stopped
@@ -80,7 +84,24 @@ impl Server {
         } else {
             ServiceState::Stopped
         };
-        //println!("Server::ping_client:-r={r:?}");
+        //println!("Server::send_to_client:-r={r:?}");
+        r
+    }
+
+    fn send_to_main(&self, msg: Box<SuperProtocol>) -> ServiceState {
+        //println!("Server::send_to_main:+");
+        #[allow(clippy::let_and_return)]
+        let r = if let Some(c_tx) = self.main_tx.clone() {
+            if c_tx.send(msg).is_ok() {
+                //println!("Server::send_to_main");
+                ServiceState::Running
+            } else {
+                ServiceState::Stopped
+            }
+        } else {
+            ServiceState::Stopped
+        };
+        //println!("Server::send_to_main:- r={r:?}");
         r
     }
 }
@@ -92,33 +113,38 @@ impl HandleMessage<SuperProtocol> for Server {
                 match &*msg {
                     SuperProtocol::P2(Pinger::Start(StartMsg {
                         count,
-                        client_tx,
+                        main_tx,
                         server_tx,
+                        client_tx,
                     })) => {
                         //println!("Server::handle_message: Start msg={msg:?}");
                         self.count = *count;
-                        self.client_tx = client_tx.clone();
-                        self.my_tx = server_tx.clone();
+                        self.main_tx = Some(main_tx.clone());
+                        self.my_tx = Some(server_tx.clone());
+                        self.client_tx = Some(client_tx.clone());
 
                         if self.count > 0 {
                             self.send_to_client(Box::new(SuperProtocol::P1(Echo::Echo(
                                 self.my_tx.clone().unwrap(),
                             ))))
                         } else {
-                            self.send_to_client(Box::new(SuperProtocol::P1(Echo::Stop)));
-                            ServiceState::Stopped
+                            // We're not pinging because count is zero initially, so no pinging
+                            //println!("Server::handle_message: StartMsg::count == {} so no pinging, sending DONE msg={msg:?}", self.count);
+                            self.send_to_main(Box::new(SuperProtocol::P2(Pinger::Done)))
                         }
                     }
-                    SuperProtocol::P2(Pinger::Stop) => ServiceState::Stopped,
+                    SuperProtocol::P2(Pinger::Stop) => {
+                        //println!("Server::handle_message: STOP msg={msg:?}");
+                        ServiceState::Stopped
+                    }
                     SuperProtocol::P1(Echo::Echo(_)) => {
                         if self.count > 0 {
                             self.count -= 1;
                             //println!("Server::handle_message: Echo count={} received msg={msg:?}", self.count);
                             self.send_to_client(msg)
                         } else {
-                            //println!("Server::handle_message: Echo count={} STOPPING received msg={msg:?}", self.count);
-                            self.send_to_client(Box::new(SuperProtocol::P1(Echo::Stop)));
-                            ServiceState::Stopped
+                            //println!("Server::handle_message: Echo count={} DONE msg={msg:?}", self.count);
+                            self.send_to_main(Box::new(SuperProtocol::P2(Pinger::Done)))
                         }
                     }
                     _ => {
@@ -128,7 +154,7 @@ impl HandleMessage<SuperProtocol> for Server {
                 }
             }
             ServiceState::Stopped => {
-                //println!("Server::handle_message: Stopped");
+                println!("Server::handle_message: Stopped");
                 self.send_to_client(Box::new(SuperProtocol::P1(Echo::Stop)));
                 ServiceState::Stopped
             }
@@ -149,6 +175,14 @@ impl Default for ServiceState {
     }
 }
 
+#[derive(Debug)]
+#[allow(unused)]
+pub enum MainMsgs {
+    ClientTx(Sender<Box<SuperProtocol>>),
+    ServerTx(Sender<Box<SuperProtocol>>),
+    //StartAndRun,
+}
+
 // This isn't what I want, but this compiles.
 //
 // The closest safe rust looks to be `std::any::Any`,
@@ -157,6 +191,7 @@ impl Default for ServiceState {
 pub enum SuperProtocol {
     P1(Echo),
     P2(Pinger),
+    P3(MainMsgs),
 }
 
 pub trait HandleMessage<SuperProtocol> {
@@ -199,16 +234,6 @@ impl ServiceManager {
         self.services[idx].running = ss.clone();
 
         ss
-    }
-
-    // Enable all service as running, this assumes
-    // that after stopped services and be restarted.
-    // This is true for these trivial services but it
-    // is not always so!
-    pub fn enable_running(&mut self) {
-        for service in &mut self.services {
-            service.running = ServiceState::Running;
-        }
     }
 
     pub fn run(&mut self) {
@@ -313,6 +338,7 @@ mod test {
         service_manager.register_service(Box::new(client));
         service_manager.register_service(Box::new(server));
 
+        let (main_tx, main_rx) = channel::<Sender<Box<SuperProtocol>>>();
         let client_tx = service_manager.get_sender(0);
         let server_tx = service_manager.get_sender(1);
 
@@ -323,8 +349,9 @@ mod test {
 
         let msg = Box::new(SuperProtocol::P2(Pinger::Start(StartMsg {
             count: 1,
-            client_tx: Some(client_tx),
-            server_tx: Some(server_tx),
+            main_tx: server_tx.clone(),
+            server_tx: server_tx.clone(),
+            client_tx: client_tx.clone(),
         })));
         service_manager.get_sender(1).send(msg);
 
@@ -346,27 +373,30 @@ mod test {
         service_manager.register_service(Box::new(client));
         service_manager.register_service(Box::new(server));
 
+        let (main_tx, main_rx) = channel::<Sender<Box<SuperProtocol>>>();
         let client_tx = service_manager.get_sender(0);
         let server_tx = service_manager.get_sender(1);
 
         for _ in 0..2 {
             let msg = Box::new(SuperProtocol::P2(Pinger::Start(StartMsg {
                 count: 1,
-                client_tx: Some(client_tx.clone()),
-                server_tx: Some(server_tx.clone()),
+                main_tx: server_tx.clone(),
+                server_tx: server_tx.clone(),
+                client_tx: client_tx.clone(),
             })));
             _ = service_manager.get_sender(1).send(msg);
 
             // Invoke run so server and client can process messages
             service_manager.run();
+        }
 
-            // All services are stopped
-            for idx in 0..service_manager.services.len() {
-                assert_eq!(service_manager.services[idx].running, ServiceState::Stopped);
-            }
+        // Stop the server and clients
+        println!("main: Stop server and client");
+        _ = server_tx.send(Box::new(SuperProtocol::P2(Pinger::Stop)));
+        _ = client_tx.send(Box::new(SuperProtocol::P1(Echo::Stop)));
 
-            // Re-enable running, works for this simple test
-            service_manager.enable_running();
+        for idx in 0..service_manager.services.len() {
+            assert_eq!(service_manager.services[idx].running, ServiceState::Stopped);
         }
     }
 }

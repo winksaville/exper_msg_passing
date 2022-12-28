@@ -1,86 +1,110 @@
-use std::{thread, sync::{mpsc::{Sender, channel, Receiver}, RwLock, Arc}};
+use std::{sync::mpsc::channel, thread};
 
-use exper_msg_passing::{Client, Pinger, Server, ServiceManager, StartMsg, SuperProtocol};
-
-pub struct SenderWrapper<T>(Sender<T>);
-
-//impl<T> SenderWrapper<T> {
-//    fn new(sender: Sender<T>) -> Self {
-//        Self(sender)
-//    }
-//}
-unsafe impl<T> Send for SenderWrapper<T> {}
-unsafe impl<T> Sync for SenderWrapper<T> {}
+use exper_msg_passing::{
+    Client, Echo, MainMsgs, Pinger, Server, ServiceManager, StartMsg, SuperProtocol,
+};
 
 fn main() {
-    //let client = Client::default();
-    //let mut client_service_manager = ServiceManager::default();
-    //client_service_manager.register_service(Box::new(client));
+    println!("main:+");
+    // Create a channel so client can send its a tx channel to main
 
-    //let server = Server::default();
-    //let mut server_service_manager = ServiceManager::default();
-    //server_service_manager.register_service(Box::new(client));
+    let (main_tx, main_rx) = channel::<Box<SuperProtocol>>();
 
-    //let client_tx = client_service_manager.get_sender(0);
-    //let server_tx = server_service_manager.get_sender(0);
+    let client_to_main_tx = main_tx.clone();
+    let server_to_main_tx = main_tx.clone();
 
-    //let mut client_tx: Arc<RwLock<Option<Sender<Box<SuperProtocol>>>>> =
-    //    Arc::new(RwLock::new(None));
+    let client_thread_handle = thread::spawn(move || {
+        println!("client_thread:+");
+        let client = Client::default();
+        let mut client_service_manager = ServiceManager::default();
+        client_service_manager.register_service(Box::new(client));
+        println!("client_thread:  registered with client_service_manager");
 
-    // This would be better shared via a message but this is "quick/dirty" for now.
-    let client_tx: Arc<RwLock<Option<SenderWrapper<Box<SuperProtocol>>>>> =
-        Arc::new(RwLock::new(None));
+        // Send back our client_tx so it will be passed to server
+        let client_tx = client_service_manager.get_sender(0);
+        client_to_main_tx
+            //.clone()
+            .send(Box::new(SuperProtocol::P3(MainMsgs::ClientTx(client_tx))))
+            .unwrap();
+        //main_tx.clone().send(Box::new(SuperProtocol::P3(MainMsgs::ClientTx(client_tx)))).unwrap();
+        println!("client_thread:  Sent client_tx to main");
 
-    //for _ in 0..2 {
+        // Invoke run so client can process messages
+        println!("client_thread:  Invoke run");
+        client_service_manager.run();
 
-        let client_thread_handle = thread::spawn(move || {
-            let client = Client::default();
-            let mut client_service_manager = ServiceManager::default();
-            client_service_manager.register_service(Box::new(client));
+        println!("client_thread:-");
+    });
 
-            let c_tx = client_service_manager.get_sender(0);
+    // Receive MainMsgs::ClientTx msg
+    let client_tx = match main_rx.recv() {
+        Ok(msg) => match *msg {
+            SuperProtocol::P3(MainMsgs::ClientTx(c_tx)) => c_tx,
+            _ => panic!("main: Unexpected msg={msg:?}"),
+        },
+        Err(why) => panic!("main: Error receiving client_tx, why={why}"),
+    };
+    println!("main:  client_tx={client_tx:?}");
 
-            let x = client_tx.clone();
-            let mut writer_lock_client_tx = x.write().unwrap();
-            let sw = SenderWrapper(c_tx);
-            *writer_lock_client_tx = Some(sw);
+    let server_thread_handle = thread::spawn(move || {
+        println!("server_thread:+");
 
-            // Invoke run so client can process messages
-            client_service_manager.run();
+        let server = Server::default();
+        let mut server_service_manager = ServiceManager::default();
+        server_service_manager.register_service(Box::new(server));
+        println!("server_thread:  registered with server_service_manager");
 
-            client_service_manager.enable_running();
-        });
+        // Send back our server_tx so we can be be started and stopped
+        let server_tx = server_service_manager.get_sender(0);
+        server_to_main_tx
+            //.clone()
+            .send(Box::new(SuperProtocol::P3(MainMsgs::ServerTx(server_tx))))
+            .unwrap();
+        println!("server_thread:  Sent server_tx to main");
 
-        let server_thread_handle = thread::spawn(move || {
-            // Wait for client_tx to be Some
-            let c_tx_sw = loop {
-                let x = client_tx.clone();
-                let reader_lock_client_tx = x.read().unwrap();
-                if let Some(sw) = *reader_lock_client_tx {
-                    break sw
-                }
-            };
+        println!("server_thread:  Invoke run");
+        server_service_manager.run();
 
-            let server = Server::default();
-            let mut server_service_manager = ServiceManager::default();
-            server_service_manager.register_service(Box::new(server));
+        println!("server_thread:-");
+    });
 
-            let s_tx = server_service_manager.get_sender(0);
+    // Receive MainMsgs::ServerTx msg
+    let server_tx = match main_rx.recv() {
+        Ok(msg) => match *msg {
+            SuperProtocol::P3(MainMsgs::ServerTx(c_tx)) => c_tx,
+            _ => panic!("main: Unexpected msg={msg:?}"),
+        },
+        Err(why) => panic!("main: Error receiving server_tx, why={why}"),
+    };
+    println!("main:  server_tx={server_tx:?}");
 
-            let msg = Box::new(SuperProtocol::P2(Pinger::Start(StartMsg {
-                count: 1,
-                client_tx: Some((c_tx_sw.0).clone()),
-                server_tx: Some(s_tx.clone()),
-            })));
-            _ = server_service_manager.get_sender(0).send(msg);
+    for _ in 0..2 {
+        let msg = Box::new(SuperProtocol::P2(Pinger::Start(StartMsg {
+            count: 3,
+            main_tx: main_tx.clone(),
+            server_tx: server_tx.clone(),
+            client_tx: client_tx.clone(),
+        })));
+        _ = server_tx.send(msg);
 
-            // Invoke run so server can process messages
-            server_service_manager.run();
+        // Wait for server to complete
+        match main_rx.recv() {
+            Ok(msg) => match &*msg {
+                SuperProtocol::P2(Pinger::Done) => println!("main: server is Done"),
+                _ => panic!("main: Unexpected msg={msg:?}"),
+            },
+            Err(why) => panic!("main: Error receiving server_tx, why={why}"),
+        }
+    }
 
-            server_service_manager.enable_running();
-        });
+    // Stop the server and clients
+    println!("main: Stopping server and client");
+    _ = server_tx.send(Box::new(SuperProtocol::P2(Pinger::Stop)));
+    _ = client_tx.send(Box::new(SuperProtocol::P1(Echo::Stop)));
 
-        client_thread_handle.join();
-        //server_thread_handle.join();
-    //}
+    println!("main: Waiting for server and client to stop");
+    _ = server_thread_handle.join();
+    _ = client_thread_handle.join();
+
+    println!("main:-");
 }
