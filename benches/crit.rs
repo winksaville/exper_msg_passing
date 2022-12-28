@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, PlotConfiguration};
-use exper_msg_passing::{Client, Server, ServiceManager, SuperProtocol, Pinger, StartMsg};
+use exper_msg_passing::{Client, Pinger, Server, ServiceManager, StartMsg, SuperProtocol};
 use std::{
     sync::mpsc::{channel, Receiver, Sender},
     thread,
@@ -529,11 +529,7 @@ fn server_manager_multiple(c: &mut Criterion) {
     let mut group = c.benchmark_group("multiple_runs_one_thread");
     group.plot_config(plot_config);
 
-    for count in [
-        1,
-        500,
-        1000,
-    ] {
+    for count in [1, 500, 1000] {
         group.bench_with_input(
             BenchmarkId::new("multiple_runs_onethread", count),
             &count,
@@ -574,34 +570,32 @@ fn server_manager_1000(c: &mut Criterion) {
     let mut group = c.benchmark_group("one_thread");
     group.plot_config(plot_config);
 
-    group.bench_function(
-        "1000", |b| {
-            let client = Client::default();
-            let server = Server::default();
+    group.bench_function("1000", |b| {
+        let client = Client::default();
+        let server = Server::default();
 
-            let mut service_manager = ServiceManager::default();
-            service_manager.register_service(Box::new(client));
-            service_manager.register_service(Box::new(server));
+        let mut service_manager = ServiceManager::default();
+        service_manager.register_service(Box::new(client));
+        service_manager.register_service(Box::new(server));
 
-            let client_tx = service_manager.get_sender(0);
-            let server_tx = service_manager.get_sender(1);
+        let client_tx = service_manager.get_sender(0);
+        let server_tx = service_manager.get_sender(1);
 
-            b.iter(|| {
-                let msg = Box::new(SuperProtocol::P2(Pinger::Start(StartMsg {
-                    count: 500, // 2 messages per iteration so this is 1000 messages
-                    client_tx: Some(client_tx.clone()),
-                    server_tx: Some(server_tx.clone()),
-                })));
-                _ = service_manager.get_sender(1).send(msg);
+        b.iter(|| {
+            let msg = Box::new(SuperProtocol::P2(Pinger::Start(StartMsg {
+                count: 500, // 2 messages per iteration so this is 1000 messages
+                client_tx: Some(client_tx.clone()),
+                server_tx: Some(server_tx.clone()),
+            })));
+            _ = service_manager.get_sender(1).send(msg);
 
-                // Invoke run so server and client can process messages
-                service_manager.run();
+            // Invoke run so server and client can process messages
+            service_manager.run();
 
-                // Re-enable running, works for this simple test
-                service_manager.enable_running();
-            });
-        },
-    );
+            // Re-enable running, works for this simple test
+            service_manager.enable_running();
+        });
+    });
 }
 
 criterion_group!(benches, server_manager_1000,);
