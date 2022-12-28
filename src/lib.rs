@@ -95,7 +95,7 @@ impl HandleMessage<SuperProtocol> for Server {
                         client_tx,
                         server_tx,
                     })) => {
-                        //println!("Server::handle_message: Start msg={:?}", msg);
+                        //println!("Server::handle_message: Start msg={msg:?}");
                         self.count = *count;
                         self.client_tx = client_tx.clone();
                         self.my_tx = server_tx.clone();
@@ -113,7 +113,7 @@ impl HandleMessage<SuperProtocol> for Server {
                     SuperProtocol::P1(Echo::Echo(_)) => {
                         if self.count > 0 {
                             self.count -= 1;
-                            //println!( "Server::handle_message: Echo count={} received msg={msg:?}", self.count);
+                            //println!("Server::handle_message: Echo count={} received msg={msg:?}", self.count);
                             self.send_to_client(msg)
                         } else {
                             //println!("Server::handle_message: Echo count={} STOPPING received msg={msg:?}", self.count);
@@ -215,7 +215,7 @@ impl ServiceManager {
         //println!("ServiceManager::run:+");
         loop {
             let mut running_count = self.services.len();
-            //println!( "ServiceManager::run: TOW running_count={running_count}, services.len={}", self.services.len());
+            //println!("ServiceManager::run: TOW running_count={running_count}, services.len={}", self.services.len());
             for idx in 0..self.services.len() {
                 //println!("ServiceManager::run: TOF idx={idx}");
                 let service = &mut self.services[idx];
@@ -231,7 +231,7 @@ impl ServiceManager {
                             //println!("ServiceManager::run: services[{idx}] NOT running");
                         }
                         //} else {
-                        //    println!("ServiceManager::run: services[{idx}] no messages");
+                        //    //println!("ServiceManager::run: services[{idx}] no messages");
                     }
                 } else {
                     running_count -= 1;
