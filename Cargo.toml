@@ -9,6 +9,7 @@ rust-version = "1.66"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+crossbeam-channel = "0.5.6"
 #custom-logger = { git = "https://github.com/winksaville/custom-logger", version = "0.1.0" }
 #log = { version = "0.4.17", features = ["release_max_level_off"] }
 

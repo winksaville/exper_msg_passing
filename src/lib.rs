@@ -1,4 +1,4 @@
-use std::sync::mpsc::{channel, Receiver, Sender};
+use crossbeam_channel::{unbounded, Receiver, Sender};
 
 // -------------------------
 
@@ -215,7 +215,7 @@ pub struct ServiceManager {
 #[allow(unused)]
 impl ServiceManager {
     pub fn register_service(&mut self, message_handler: Box<dyn HandleMessage<SuperProtocol>>) {
-        let (tx, rx) = channel();
+        let (tx, rx) = unbounded();
         let sr = ServiceRec {
             running: ServiceState::Running,
             tx,
@@ -338,7 +338,7 @@ mod test {
         service_manager.register_service(Box::new(client));
         service_manager.register_service(Box::new(server));
 
-        let (main_tx, main_rx) = channel::<Sender<Box<SuperProtocol>>>();
+        let (main_tx, main_rx) = unbounded::<Sender<Box<SuperProtocol>>>();
         let client_tx = service_manager.get_sender(0);
         let server_tx = service_manager.get_sender(1);
 
@@ -373,7 +373,7 @@ mod test {
         service_manager.register_service(Box::new(client));
         service_manager.register_service(Box::new(server));
 
-        let (main_tx, main_rx) = channel::<Sender<Box<SuperProtocol>>>();
+        let (main_tx, main_rx) = unbounded::<Sender<Box<SuperProtocol>>>();
         let client_tx = service_manager.get_sender(0);
         let server_tx = service_manager.get_sender(1);
 

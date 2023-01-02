@@ -1,4 +1,5 @@
-use std::{sync::mpsc::channel, thread};
+use crossbeam_channel::unbounded;
+use std::thread;
 
 use exper_msg_passing::{
     Client, Echo, MainMsgs, Pinger, Server, ServiceManager, StartMsg, SuperProtocol,
@@ -8,7 +9,7 @@ fn main() {
     println!("main:+");
     // Create a channel so client can send its a tx channel to main
 
-    let (main_tx, main_rx) = channel::<Box<SuperProtocol>>();
+    let (main_tx, main_rx) = unbounded::<Box<SuperProtocol>>();
 
     let client_to_main_tx = main_tx.clone();
     let server_to_main_tx = main_tx.clone();

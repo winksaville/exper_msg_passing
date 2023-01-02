@@ -2,11 +2,9 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, PlotCon
 use exper_msg_passing::{
     Client, Echo, MainMsgs, Pinger, Server, ServiceManager, StartMsg, SuperProtocol,
 };
-use std::{
-    sync::mpsc::{channel, Receiver, Sender},
-    thread,
-};
+use std::thread;
 
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use std::fmt::Display;
 
 pub trait PushV {
@@ -262,8 +260,8 @@ const KB: usize = 1024;
 fn prep<Msg: PushV + Clone + Default>(
     v_len: usize,
 ) -> (Sender<Msg>, Sender<Msg>, Receiver<Msg>, Receiver<Msg>) {
-    let (tx, partner_rx) = channel::<Msg>();
-    let (partner_tx, rx) = channel::<Msg>();
+    let (tx, partner_rx) = unbounded::<Msg>();
+    let (partner_tx, rx) = unbounded::<Msg>();
 
     let mut msg = Msg::default();
     for i in 0..v_len {
@@ -315,8 +313,8 @@ fn prep_box<Msg: PushV + Clone + Default>(
     Receiver<Box<Msg>>,
     Receiver<Box<Msg>>,
 ) {
-    let (tx, partner_rx) = channel::<Box<Msg>>();
-    let (partner_tx, rx) = channel::<Box<Msg>>();
+    let (tx, partner_rx) = unbounded::<Box<Msg>>();
+    let (partner_tx, rx) = unbounded::<Box<Msg>>();
 
     let mut msg = Msg::default();
     for i in 0..v_len {
@@ -536,11 +534,11 @@ fn service_manager_1000(c: &mut Criterion) {
     group.bench_function("1000", |b| {
         //println!("bench:+");
 
-        let (bench_tx, bench_rx) = channel::<Box<SuperProtocol>>();
+        let (bench_tx, bench_rx) = unbounded::<Box<SuperProtocol>>();
         let main_to_bench_tx = bench_tx.clone();
         let server_to_bench_tx = bench_tx.clone();
 
-        let (main_tx, main_rx) = channel::<Box<SuperProtocol>>();
+        let (main_tx, main_rx) = unbounded::<Box<SuperProtocol>>();
         let to_main_tx = main_tx.clone();
 
         // "Main thread that is where the Server and Client are running."
