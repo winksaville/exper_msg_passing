@@ -525,8 +525,8 @@ fn echo_clone(c: &mut Criterion) {
 }
 
 #[allow(unused)]
-fn server_manager_1000(c: &mut Criterion) {
-    //println!("server_manager_1000:+");
+fn service_manager_1000(c: &mut Criterion) {
+    //println!("service_manager_1000:+");
 
     let plot_config = PlotConfiguration::default();
 
@@ -625,9 +625,8 @@ fn server_manager_1000(c: &mut Criterion) {
         //println!("bench:-");
     });
 
-    println!("server_manager_1000:-");
+    //println!("service_manager_1000:-");
 }
 
-criterion_group!(benches, server_manager_1000,);
-//criterion_group!(benches, server_manager_1000, server_manager_multiple, echo, echo_clone, );
+criterion_group!(benches, service_manager_1000, echo, echo_clone,);
 criterion_main!(benches);
