@@ -534,7 +534,7 @@ fn service_manager_1000(c: &mut Criterion) {
     group.bench_function("1000", |b| {
         //println!("bench:+");
 
-        let (bench_tx, bench_rx) = unbounded::<Box<SuperProtocol>>();
+        let (bench_tx, bench_rx) = unbounded::<Box<MainMsgs>>();
         let main_to_bench_tx = bench_tx.clone();
         let server_to_bench_tx = bench_tx.clone();
 
@@ -558,16 +558,10 @@ fn service_manager_1000(c: &mut Criterion) {
 
             // Send client_tx and server_tx to bench
             main_to_bench_tx
-                //.clone()
-                .send(Box::new(SuperProtocol::P3(MainMsgs::ClientTx(
-                    client_tx.clone(),
-                ))))
+                .send(Box::new(MainMsgs::ClientTx(client_tx.clone())))
                 .unwrap();
             main_to_bench_tx
-                //.clone()
-                .send(Box::new(SuperProtocol::P3(MainMsgs::ServerTx(
-                    server_tx.clone(),
-                ))))
+                .send(Box::new(MainMsgs::ServerTx(server_tx.clone())))
                 .unwrap();
 
             // Rut server and client allowing them to process messages
@@ -578,20 +572,8 @@ fn service_manager_1000(c: &mut Criterion) {
         });
 
         //println!("bench:  Get client and server tx's");
-        let client_tx = match bench_rx.recv() {
-            Ok(msg) => match *msg {
-                SuperProtocol::P3(MainMsgs::ClientTx(tx)) => tx,
-                _ => panic!("bench: Unexpected msg={msg:?}"),
-            },
-            Err(why) => panic!("bench: Error receiving server_tx, why={why}"),
-        };
-        let server_tx = match bench_rx.recv() {
-            Ok(msg) => match *msg {
-                SuperProtocol::P3(MainMsgs::ServerTx(tx)) => tx,
-                _ => panic!("bench: Unexpected msg={msg:?}"),
-            },
-            Err(why) => panic!("bench: Error receiving server_tx, why={why}"),
-        };
+        let client_tx = bench_rx.recv().expect("Expected client_tx").client_tx();
+        let server_tx = bench_rx.recv().expect("Expected server_tx").server_tx();
 
         b.iter(|| {
             //println!("b.iter:  Send Start");
@@ -606,13 +588,7 @@ fn service_manager_1000(c: &mut Criterion) {
 
             // Wait for server to complete
             //println!("b.iter:  wait for server to complete");
-            match bench_rx.recv() {
-                Ok(msg) => match &*msg {
-                    SuperProtocol::P2(Pinger::Done) => (), //println!("b.iter:  server is Done"),
-                    _ => panic!("b.iter: Unexpected msg={msg:?}"),
-                },
-                Err(why) => panic!("b.iter: Error receiving server_tx, why={why}"),
-            }
+            bench_rx.recv().expect("Expected PingerDone").pinger_done();
         });
 
         // Stop the server and client
@@ -626,5 +602,6 @@ fn service_manager_1000(c: &mut Criterion) {
     //println!("service_manager_1000:-");
 }
 
-criterion_group!(benches, service_manager_1000, echo, echo_clone,);
+//criterion_group!(benches, service_manager_1000, echo, echo_clone,);
+criterion_group!(benches, service_manager_1000);
 criterion_main!(benches);
